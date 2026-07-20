@@ -86,6 +86,7 @@ def prepare_dataset():
 class DataGenerator(keras.utils.Sequence):
     # ตัวนี้ทำหน้าที่ป้อนข้อมูลทีละ batch ให้โมเดลตอน train/val
     def __init__(self, file_list, batch_size=32, shuffle=True):
+        super().__init__()
         self.file_list = file_list
         self.batch_size = batch_size
         self.shuffle = shuffle
@@ -123,9 +124,11 @@ def build_model():
         keras.layers.Input(shape=(64, 94, 1)),
 
         keras.layers.Conv2D(16, 3, padding="same", activation="relu"),
+        keras.layers.BatchNormalization(),
         keras.layers.MaxPooling2D(2),
 
         keras.layers.Conv2D(32, 3, padding="same", activation="relu"),
+        keras.layers.BatchNormalization(),
         keras.layers.MaxPooling2D(2),
 
         keras.layers.Flatten(),
