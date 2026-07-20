@@ -1,0 +1,3 @@
+1 Download Dataset (studio1-80) from https://github.com/vistec-AI/dataset-releases/releases/tag/v1
+2 Edit path in organize_thaiser.py (line 9) and run it
+3 Edit Dataset path in train.py (line 13) and run it
