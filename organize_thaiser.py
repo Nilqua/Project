@@ -7,7 +7,7 @@ from collections import Counter
 def organize_dataset():
     # Project paths
     base_dir = Path("/home/naslia/Study/Project1")
-    dataset_dir = base_dir / "Dataset"
+    dataset_dir = base_dir / "Code" / "Dataset"
     thaiser_dir = dataset_dir / "ThaiSER"
     cleaned_dir = dataset_dir / "ThaiSER_cleaned"
     label_path = thaiser_dir / "emotion_label.json"

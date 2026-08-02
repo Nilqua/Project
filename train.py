@@ -7,7 +7,7 @@ import librosa
 import tensorflow as tf
 keras = tf.keras
 
-DATASET_PATH = "/home/naslia/Study/Project1/Dataset/ThaiSER_cleaned/script"
+DATASET_PATH = "/home/naslia/Study/Project1/Code/Dataset/ThaiSER_cleaned/script"
 BATCH_SIZE = 16
 EPOCHS = 10
 LEARNING_RATE = 0.001
