@@ -5,10 +5,10 @@ import random
 import numpy as np
 import librosa
 import tensorflow as tf
-from tensorflow import keras
+keras = tf.keras
 
 DATASET_PATH = "/home/naslia/Study/Project1/Dataset/ThaiSER_cleaned/script"
-BATCH_SIZE = 32
+BATCH_SIZE = 16
 EPOCHS = 10
 LEARNING_RATE = 0.001
 SAMPLE_RATE = 16000
@@ -26,7 +26,21 @@ def get_actor_id(filename):
     return "unknown"
 
 
-def load_spectrogram(filepath):
+def augment_audio(wav):
+    # สุ่มใส่ white noise
+    if random.random() < 0.5:
+        noise = np.random.normal(0, 0.002, len(wav))
+        wav = wav + noise
+
+    # สุ่ม pitch shift
+    if random.random() < 0.5:
+        step = random.uniform(-2.0, 2.0)
+        wav = librosa.effects.pitch_shift(y=wav, sr=SAMPLE_RATE, n_steps=step)
+
+    return wav
+
+
+def load_spectrogram(filepath, augment=False):
     # โหลดไฟล์เสียง librosa จะ resample และแปลง mono ให้เองอัตโนมัติ
     wav, sr = librosa.load(filepath, sr=SAMPLE_RATE)
 
@@ -35,6 +49,10 @@ def load_spectrogram(filepath):
         wav = np.pad(wav, (0, MAX_LEN - len(wav)))
     else:
         wav = wav[:MAX_LEN]
+
+    # ทำ data augmentation หากเป็นชุดฝึก
+    if augment:
+        wav = augment_audio(wav)
 
     # แปลงคลื่นเสียงเป็น mel spectrogram แล้วแปลงเป็น dB
     mel = librosa.feature.melspectrogram(
@@ -85,11 +103,12 @@ def prepare_dataset():
 
 class DataGenerator(keras.utils.Sequence):
     # ตัวนี้ทำหน้าที่ป้อนข้อมูลทีละ batch ให้โมเดลตอน train/val
-    def __init__(self, file_list, batch_size=32, shuffle=True):
+    def __init__(self, file_list, batch_size=32, shuffle=True, augment=False):
         super().__init__()
         self.file_list = file_list
         self.batch_size = batch_size
         self.shuffle = shuffle
+        self.augment = augment
         self.indices = np.arange(len(file_list))
         if self.shuffle:
             np.random.shuffle(self.indices)
@@ -108,7 +127,7 @@ class DataGenerator(keras.utils.Sequence):
         y = []
         for i in batch_idx:
             filepath, label = self.file_list[i]
-            X.append(load_spectrogram(filepath))
+            X.append(load_spectrogram(filepath, augment=self.augment))
             y.append(label)
 
         return np.array(X), np.array(y)
@@ -120,19 +139,24 @@ class DataGenerator(keras.utils.Sequence):
 
 
 def build_model():
+    reg = keras.regularizers.l2(1e-4)
     model = keras.Sequential([
         keras.layers.Input(shape=(64, 94, 1)),
 
-        keras.layers.Conv2D(16, 3, padding="same", activation="relu"),
+        keras.layers.Conv2D(16, 3, padding="same", activation="relu", kernel_regularizer=reg),
         keras.layers.BatchNormalization(),
         keras.layers.MaxPooling2D(2),
+        keras.layers.Dropout(0.25),
 
-        keras.layers.Conv2D(32, 3, padding="same", activation="relu"),
+        keras.layers.Conv2D(32, 3, padding="same", activation="relu", kernel_regularizer=reg),
         keras.layers.BatchNormalization(),
         keras.layers.MaxPooling2D(2),
+        keras.layers.Dropout(0.25),
 
         keras.layers.Flatten(),
-        keras.layers.Dense(64, activation="relu"),
+        keras.layers.Dense(64, activation="relu", kernel_regularizer=reg),
+        keras.layers.BatchNormalization(),
+        keras.layers.Dropout(0.5),
         keras.layers.Dense(len(CLASSES), activation="softmax"),
     ])
     return model
@@ -146,8 +170,8 @@ def main():
     print("Train samples:", len(train_files))
     print("Val samples  :", len(val_files))
 
-    train_gen = DataGenerator(train_files, batch_size=BATCH_SIZE, shuffle=True)
-    val_gen = DataGenerator(val_files, batch_size=BATCH_SIZE, shuffle=False)
+    train_gen = DataGenerator(train_files, batch_size=BATCH_SIZE, shuffle=True, augment=True)
+    val_gen = DataGenerator(val_files, batch_size=BATCH_SIZE, shuffle=False, augment=False)
 
     # 2. สร้างโมเดล
     model = build_model()
