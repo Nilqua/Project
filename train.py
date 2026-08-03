@@ -2,17 +2,30 @@ import os
 import glob
 import re
 import random
+import datetime
 import numpy as np
 import librosa
 import tensorflow as tf
 keras = tf.keras
 
-DATASET_PATH = "/home/naslia/Study/Project1/Code/Dataset/ThaiSER_cleaned/script"
+# --- CONFIGURATION ---
+DATASET_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Dataset", "ThaiSER_cleaned", "script")
+MODELS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Models")
 BATCH_SIZE = 16
 EPOCHS = 10
 LEARNING_RATE = 0.001
 SAMPLE_RATE = 16000
 MAX_LEN = 16000 * 3  # 3 วินาที
+
+# Audio features config
+N_FFT = 1024
+HOP_LENGTH = 512
+N_MELS = 64
+
+# Model hyperparameters
+L2_REG = 1e-4
+DROPOUT_CONV = 0.25
+DROPOUT_DENSE = 0.5
 
 CLASSES = ["Angry", "Frustrated", "Happy", "Neutral", "Sad"]
 CLASS_TO_IDX = {name: idx for idx, name in enumerate(CLASSES)}
@@ -56,7 +69,7 @@ def load_spectrogram(filepath, augment=False):
 
     # แปลงคลื่นเสียงเป็น mel spectrogram แล้วแปลงเป็น dB
     mel = librosa.feature.melspectrogram(
-        y=wav, sr=SAMPLE_RATE, n_fft=1024, hop_length=512, n_mels=64
+        y=wav, sr=SAMPLE_RATE, n_fft=N_FFT, hop_length=HOP_LENGTH, n_mels=N_MELS
     )
     mel_db = librosa.power_to_db(mel, ref=np.max)
 
@@ -139,24 +152,24 @@ class DataGenerator(keras.utils.Sequence):
 
 
 def build_model():
-    reg = keras.regularizers.l2(1e-4)
+    reg = keras.regularizers.l2(L2_REG)
     model = keras.Sequential([
-        keras.layers.Input(shape=(64, 94, 1)),
+        keras.layers.Input(shape=(N_MELS, 94, 1)),
 
         keras.layers.Conv2D(16, 3, padding="same", activation="relu", kernel_regularizer=reg),
         keras.layers.BatchNormalization(),
         keras.layers.MaxPooling2D(2),
-        keras.layers.Dropout(0.25),
+        keras.layers.Dropout(DROPOUT_CONV),
 
         keras.layers.Conv2D(32, 3, padding="same", activation="relu", kernel_regularizer=reg),
         keras.layers.BatchNormalization(),
         keras.layers.MaxPooling2D(2),
-        keras.layers.Dropout(0.25),
+        keras.layers.Dropout(DROPOUT_CONV),
 
         keras.layers.Flatten(),
         keras.layers.Dense(64, activation="relu", kernel_regularizer=reg),
         keras.layers.BatchNormalization(),
-        keras.layers.Dropout(0.5),
+        keras.layers.Dropout(DROPOUT_DENSE),
         keras.layers.Dense(len(CLASSES), activation="softmax"),
     ])
     return model
@@ -182,12 +195,29 @@ def main():
     )
     model.summary()
 
+    # สร้างโฟลเดอร์สำหรับเซฟโมเดลเคียงข้างโฟลเดอร์ Dataset
+    os.makedirs(MODELS_PATH, exist_ok=True)
+
+    # ตั้งชื่อไฟล์โมเดลพร้อมประทับเวลา (Timestamp)
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    model_path = os.path.join(MODELS_PATH, f"best_model_{timestamp}.keras")
+
+    # เซฟเฉพาะโมเดลที่ดีที่สุด (val_loss ต่ำที่สุด)
+    checkpoint = keras.callbacks.ModelCheckpoint(
+        filepath=model_path,
+        monitor="val_loss",
+        save_best_only=True,
+        mode="min",
+        verbose=1
+    )
+
     # 3. เทรนโมเดล
     print("\nStarting training...")
     model.fit(
         train_gen,
         validation_data=val_gen,
         epochs=EPOCHS,
+        callbacks=[checkpoint]
     )
 
 
