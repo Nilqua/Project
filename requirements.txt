@@ -1,4 +1,7 @@
-tensorflow
+torch
+torchaudio
+transformers
+datasets
 librosa
 soundfile
 numpy

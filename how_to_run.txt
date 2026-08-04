@@ -11,11 +11,15 @@ Step 4: Download the ThaiSER dataset (studio1-80) from:
         https://github.com/vistec-AI/dataset-releases/releases/tag/v1
 
 Step 5: Extract the dataset and place it under the Dataset directory as:
-        Dataset/ThaiSER/
-        (Ensure Dataset/ThaiSER/emotion_label.json and studio folders exist)
+        Code/Dataset/ThaiSER/
+        (Ensure Code/Dataset/ThaiSER/emotion_label.json and studio folders exist)
 
 Step 6: Run the dataset organization script.
         python organize_thaiser.py
 
-Step 7: Train the baseline CNN model.
-        python train.py
+Step 7: Train the models:
+        # Baseline CNN model:
+        python train_cnn.py
+
+        # Pre-trained Wav2Vec 2.0 model:
+        python train_wav2vec.py
