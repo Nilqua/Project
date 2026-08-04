@@ -13,7 +13,7 @@ from tqdm import tqdm
 # --- CONFIGURATION ---
 DATASET_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Dataset", "ThaiSER_cleaned", "script")
 MODELS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Models")
-BATCH_SIZE = 16
+BATCH_SIZE = 64
 EPOCHS = 10
 LEARNING_RATE = 0.001
 SAMPLE_RATE = 16000

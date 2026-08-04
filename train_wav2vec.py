@@ -14,11 +14,11 @@ from transformers import AutoFeatureExtractor, AutoModelForAudioClassification
 # --- CONFIGURATION ---
 DATASET_PATH = "/home/naslia/Study/Project1/Code/Dataset/ThaiSER_cleaned/script"
 MODELS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Models")
-MODEL_NAME = "facebook/wav2vec2-base-960h"  # สามารถเปลี่ยนเป็น "airesearch/wav2vec2-large-xlsr-53-th" ได้
+MODEL_NAME = "facebook/wav2vec2-base"  # เปลี่ยนเป็น pure pre-trained model เพื่อแก้ nan loss
 
 BATCH_SIZE = 8
 EPOCHS = 5
-LEARNING_RATE = 1e-4
+LEARNING_RATE = 1e-5
 SAMPLE_RATE = 16000
 MAX_LEN = 16000 * 3  # 3 วินาที
 
@@ -38,13 +38,7 @@ def get_actor_id(filename):
 def load_raw_audio(filepath):
     # โหลดคลื่นเสียงดิบ (Raw Waveform) ด้วย librosa ที่ 16kHz
     wav, sr = librosa.load(filepath, sr=SAMPLE_RATE)
-
-    # ทำให้ความยาวเท่ากัน 3 วินาที (48,000 samples)
-    if len(wav) < MAX_LEN:
-        wav = np.pad(wav, (0, MAX_LEN - len(wav)), mode="constant")
-    else:
-        wav = wav[:MAX_LEN]
-
+    # ไม่ต้อง pad ด้วย numpy ตรงนี้ ปล่อยให้ FeatureExtractor จัดการพร้อมสร้าง attention_mask
     return wav
 
 
@@ -97,16 +91,21 @@ class ThaiSERWav2VecDataset(Dataset):
         filepath, label = self.file_list[idx]
         wav = load_raw_audio(filepath)
 
-        # สกัดฟีเจอร์สำหรับ Wav2Vec2
+        # สกัดฟีเจอร์สำหรับ Wav2Vec2 และสร้าง attention_mask
         inputs = self.feature_extractor(
             wav,
             sampling_rate=SAMPLE_RATE,
             return_tensors="pt",
-            padding=False,
+            padding="max_length",
+            max_length=MAX_LEN,
+            truncation=True,
+            return_attention_mask=True,
+            do_normalize=True
         )
 
         input_values = inputs.input_values.squeeze(0)
-        return input_values, torch.tensor(label, dtype=torch.long)
+        attention_mask = inputs.attention_mask.squeeze(0)
+        return input_values, attention_mask, torch.tensor(label, dtype=torch.long)
 
 
 def main():
@@ -133,6 +132,11 @@ def main():
         label2id=CLASS_TO_IDX,
         id2label=IDX_TO_CLASS,
     )
+    # Freeze the feature encoder to prevent loss=nan and gradient explosion
+    try:
+        model.freeze_feature_encoder()
+    except AttributeError:
+        model.freeze_feature_extractor()
     model.to(device)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=LEARNING_RATE)
@@ -153,16 +157,18 @@ def main():
         total = 0
 
         pbar = tqdm(train_loader, desc=f"Epoch {epoch}/{EPOCHS} [Train]")
-        for input_values, labels in pbar:
+        for input_values, attention_mask, labels in pbar:
             input_values = input_values.to(device)
+            attention_mask = attention_mask.to(device)
             labels = labels.to(device)
 
             optimizer.zero_grad()
-            outputs = model(input_values=input_values, labels=labels)
+            outputs = model(input_values=input_values, attention_mask=attention_mask, labels=labels)
             loss = outputs.loss
             logits = outputs.logits
 
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
 
             train_loss += loss.item() * input_values.size(0)
@@ -182,11 +188,12 @@ def main():
         val_total = 0
 
         with torch.no_grad():
-            for input_values, labels in tqdm(val_loader, desc=f"Epoch {epoch}/{EPOCHS} [Val]  "):
+            for input_values, attention_mask, labels in tqdm(val_loader, desc=f"Epoch {epoch}/{EPOCHS} [Val]  "):
                 input_values = input_values.to(device)
+                attention_mask = attention_mask.to(device)
                 labels = labels.to(device)
 
-                outputs = model(input_values=input_values, labels=labels)
+                outputs = model(input_values=input_values, attention_mask=attention_mask, labels=labels)
                 loss = outputs.loss
                 logits = outputs.logits
 
