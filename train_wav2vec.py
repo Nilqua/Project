@@ -12,7 +12,7 @@ from tqdm import tqdm
 from transformers import AutoFeatureExtractor, AutoModelForAudioClassification
 
 # --- CONFIGURATION ---
-DATASET_PATH = "/home/naslia/Study/Project1/Code/Dataset/ThaiSER_cleaned/script"
+DATASET_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Dataset", "ThaiSER_cleaned", "script")
 MODELS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Models")
 MODEL_NAME = "facebook/wav2vec2-base"  # เปลี่ยนเป็น pure pre-trained model เพื่อแก้ nan loss
 
