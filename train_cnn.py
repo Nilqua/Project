@@ -115,7 +115,6 @@ def prepare_dataset():
 
     return train_files, val_files
 
-
 class ThaiSERDataset(Dataset):
     # PyTorch Dataset สำหรับป้อนข้อมูล Mel-Spectrogram
     def __init__(self, file_list, augment=False):
