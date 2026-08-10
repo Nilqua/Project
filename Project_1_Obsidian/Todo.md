@@ -1,0 +1,10 @@
+- [ ] ลองเอา dataset มาเทรนใหม่แบบเอา conversation ด้วย
+- [ ] ลองดู dataset H2H H2M เอา Dataset call center มาลอง
+- [ ] ลองทำ speaker decentralized ทำกราฟบอกอารมณ์ที่เปลี่ยน
+- [ ] นำเสนอให้อาจารย์อีกที
+- [ ] 
+- [ ] 
+- [ ] 
+- [ ] 
+- [ ] 
+- [ ] 
