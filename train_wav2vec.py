@@ -12,15 +12,15 @@ from tqdm import tqdm
 from transformers import AutoFeatureExtractor, AutoModelForAudioClassification
 
 # --- CONFIGURATION ---
-DATASET_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Dataset", "ThaiSER_cleaned", "script")
+BASE_DATASET_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Dataset", "ThaiSER_cleaned")
 MODELS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Models")
-MODEL_NAME = "facebook/wav2vec2-base"  # เปลี่ยนเป็น pure pre-trained model เพื่อแก้ nan loss
+MODEL_NAME = "airesearch/wav2vec2-large-xlsr-53-th"  # เปลี่ยนเป็นโมเดลภาษาไทย
 
-BATCH_SIZE = 8
+BATCH_SIZE = 4  # ลด Batch ลงเพื่อไม่ให้ RAM การ์ดจอเต็ม เพราะใช้โมเดลใหญ่และเสียงยาวขึ้น
 EPOCHS = 5
 LEARNING_RATE = 1e-5
 SAMPLE_RATE = 16000
-MAX_LEN = 16000 * 3  # 3 วินาที
+MAX_LEN = 16000 * 8  # เพิ่มเป็น 8 วินาที เพื่อเก็บเสียงสนทนาให้ครบถ้วน
 
 CLASSES = ["Angry", "Frustrated", "Happy", "Neutral", "Sad"]
 CLASS_TO_IDX = {name: idx for idx, name in enumerate(CLASSES)}
@@ -46,18 +46,19 @@ def prepare_dataset():
     # เก็บไฟล์เสียงแยกตาม actor ก่อน เพื่อไม่ให้เสียงคนเดียวกันหลุดไปทั้ง train และ val
     actor_data = {}
 
-    for cname in CLASSES:
-        folder = os.path.join(DATASET_PATH, cname)
-        if not os.path.exists(folder):
-            continue
+    for session in ["script", "imp"]:
+        for cname in CLASSES:
+            folder = os.path.join(BASE_DATASET_PATH, session, cname)
+            if not os.path.exists(folder):
+                continue
 
-        label = CLASS_TO_IDX[cname]
-        files = glob.glob(os.path.join(folder, "*.flac"))
+            label = CLASS_TO_IDX[cname]
+            files = glob.glob(os.path.join(folder, "*.flac"))
 
-        for fpath in files:
-            fname = os.path.basename(fpath)
-            actor = get_actor_id(fname)
-            actor_data.setdefault(actor, []).append((fpath, label))
+            for fpath in files:
+                fname = os.path.basename(fpath)
+                actor = get_actor_id(fname)
+                actor_data.setdefault(actor, []).append((fpath, label))
 
     actors = list(actor_data.keys())
     random.seed(42)
