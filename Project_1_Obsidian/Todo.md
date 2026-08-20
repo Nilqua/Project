@@ -1,6 +1,7 @@
 - [ ] ลองเอา dataset มาเทรนใหม่แบบเอา conversation ด้วย
-- [ ] ลองดู dataset H2H H2M เอา Dataset call center มาลอง
-- [ ] ลองทำ speaker decentralized ทำกราฟบอกอารมณ์ที่เปลี่ยน
+- [x] ลองดู dataset H2H H2M เอา Dataset call center มาลอง
+        H2H works
+- [x] ลองทำ speaker decentralized ทำกราฟบอกอารมณ์ที่เปลี่ยน
 - [ ] นำเสนอให้อาจารย์อีกที
 - [ ] 
 - [ ] 
