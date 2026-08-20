@@ -1,4 +1,10 @@
 __pycache__
+.env
 .venv
 Dataset/
 Models/
+outputs/
+Project_1_Obsidian/Advice
+*.pyc
+*.pt
+*.bin

@@ -12,8 +12,8 @@ from tqdm import tqdm
 from transformers import AutoFeatureExtractor, AutoModelForAudioClassification
 
 # --- CONFIGURATION ---
-BASE_DATASET_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Dataset", "ThaiSER_cleaned")
-MODELS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Models")
+BASE_DATASET_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "Dataset", "ThaiSER_cleaned")
+MODELS_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "Models")
 MODEL_NAME = "airesearch/wav2vec2-large-xlsr-53-th"  # เปลี่ยนเป็นโมเดลภาษาไทย
 
 BATCH_SIZE = 4  # ลด Batch ลงเพื่อไม่ให้ RAM การ์ดจอเต็ม เพราะใช้โมเดลใหญ่และเสียงยาวขึ้น

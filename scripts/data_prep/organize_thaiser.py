@@ -6,7 +6,7 @@ from collections import Counter
 
 def organize_dataset():
     # Project paths
-    base_dir = Path(__file__).resolve().parent
+    base_dir = Path(__file__).resolve().parent.parent.parent
     dataset_dir = base_dir / "Dataset"
     thaiser_dir = dataset_dir / "ThaiSER"
     cleaned_dir = dataset_dir / "ThaiSER_cleaned"

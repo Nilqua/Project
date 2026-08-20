@@ -11,8 +11,8 @@ from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 
 # --- CONFIGURATION ---
-DATASET_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Dataset", "ThaiSER_cleaned", "script")
-MODELS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Models")
+DATASET_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "Dataset", "ThaiSER_cleaned", "script")
+MODELS_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "Models")
 BATCH_SIZE = 64
 EPOCHS = 10
 LEARNING_RATE = 0.001

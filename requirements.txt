@@ -7,3 +7,5 @@ soundfile
 numpy
 tqdm
 matplotlib
+pyannote.audio
+python-dotenv

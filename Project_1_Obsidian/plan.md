@@ -43,6 +43,7 @@
 - [x] เลือก Emotion labels (Neutral, Happy, Sad, Angry, Frustrated)
 - [x] ทำ Baseline (สร้างทั้ง CNN และ Fine-tune pretrained `facebook/wav2vec2-base` ได้ความแม่นยำสูง)
 - [x] สร้างสคริปต์ตรวจจับอารมณ์และการวาดกราฟตัดแบ่งเวลา (`use_graph.py`)
+
 ### Phase 2 — เอา “หู” ไปฟังสาย Call Center (Call Analysis Pipeline)
 **สถานะ:** รอดำเนินการ (Next Step)
 **เป้าหมาย:** นำเสียงสนทนาจริงมาวิเคราะห์แยกว่า "ใครพูดตอนไหน" และจับคู่ความสัมพันธ์ของอารมณ์

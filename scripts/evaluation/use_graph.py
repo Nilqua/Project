@@ -8,7 +8,8 @@ import torch.nn.functional as F
 
 # --- การตั้งค่าเบื้องต้น ---
 # เปลี่ยนชื่อไฟล์ให้ตรงกับโมเดลจริงที่คุณเทรนเสร็จ
-MODEL_PATH = "Models/best_wav2vec2_model_20260804_233106.pt" 
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+MODEL_PATH = os.path.join(PROJECT_ROOT, "Models", "best_wav2vec2_model_20260804_233106.pt") 
 MODEL_NAME = "facebook/wav2vec2-base"
 SAMPLE_RATE = 16000
 WINDOW_SIZE_SEC = 3.0  # ขนาดหน้าต่างที่ใช้ฟังเสียง (3 วินาที)
@@ -78,7 +79,7 @@ def analyze_emotion_change(audio_path, model, feature_extractor, device):
 
     return timestamps, emotion_probs, dominant_emotions, total_duration
 
-def plot_emotion_graph(timestamps, emotion_probs, dominant_emotions, save_path="emotion_change.png"):
+def plot_emotion_graph(timestamps, emotion_probs, dominant_emotions, save_path=os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "outputs", "emotion_change.png")):
     """
     สร้างกราฟแสดงความเปลี่ยนแปลงของอารมณ์ (พร้อม Smoothing แก้ปัญหากราฟยุ่บยั่บ)
     """
