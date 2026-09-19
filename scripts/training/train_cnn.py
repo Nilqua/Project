@@ -3,16 +3,21 @@ import glob
 import re
 import random
 import datetime
+import json
+import argparse
 import numpy as np
 import librosa
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 
 # --- CONFIGURATION ---
-DATASET_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "Dataset", "ThaiSER_cleaned", "script")
-MODELS_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "Models")
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+DEFAULT_DATA_DIR = os.path.join(PROJECT_ROOT, "Dataset", "ThaiSER_cleaned")
+DEFAULT_OUTPUT_DIR = os.path.join(PROJECT_ROOT, "outputs", "experiments")
+MODELS_PATH = os.path.join(PROJECT_ROOT, "Models")
 BATCH_SIZE = 64
 EPOCHS = 10
 LEARNING_RATE = 0.001
@@ -80,30 +85,56 @@ def load_spectrogram(filepath, augment=False):
     return mel_db
 
 
-def prepare_dataset():
+def normalize_subset(subset):
+    if subset in ["sentence", "script"]:
+        return "sentence"
+    elif subset in ["improvisation", "imp"]:
+        return "improvisation"
+    elif subset == "both":
+        return "both"
+    return subset
+
+
+def prepare_dataset(subset="both", data_dir=None):
+    if data_dir is None:
+        data_dir = DEFAULT_DATA_DIR
+
+    if subset in ["sentence", "script"]:
+        sessions = ["script"]
+    elif subset in ["improvisation", "imp"]:
+        sessions = ["imp"]
+    elif subset == "both":
+        sessions = ["script", "imp"]
+    else:
+        raise ValueError(f"Unknown subset: '{subset}'. Must be one of ['sentence', 'improvisation', 'both', 'script', 'imp'].")
+
     # เก็บไฟล์เสียงแยกตาม actor ก่อน เพื่อไม่ให้เสียงคนเดียวกันหลุดไปทั้ง train และ val
     actor_data = {}
 
-    for cname in CLASSES:
-        folder = os.path.join(DATASET_PATH, cname)
-        if not os.path.exists(folder):
-            continue
+    for session in sessions:
+        for cname in CLASSES:
+            folder = os.path.join(data_dir, session, cname)
+            if not os.path.exists(folder):
+                continue
 
-        label = CLASS_TO_IDX[cname]
-        files = glob.glob(os.path.join(folder, "*.flac"))
+            label = CLASS_TO_IDX[cname]
+            files = glob.glob(os.path.join(folder, "*.flac"))
 
-        for fpath in files:
-            fname = os.path.basename(fpath)
-            actor = get_actor_id(fname)
-            actor_data.setdefault(actor, []).append((fpath, label))
+            for fpath in files:
+                fname = os.path.basename(fpath)
+                actor = get_actor_id(fname)
+                actor_data.setdefault(actor, []).append((fpath, label))
 
     actors = list(actor_data.keys())
+    if not actors:
+        raise ValueError(f"No audio files found in {data_dir} for sessions: {sessions}")
+
     random.seed(42)
     random.shuffle(actors)
 
-    val_size = int(len(actors) * 0.2)
-    val_actors = actors[:val_size]
-    train_actors = actors[val_size:]
+    val_size = max(1, int(len(actors) * 0.2))
+    val_actors = set(actors[:val_size])
+    train_actors = set(actors[val_size:])
 
     train_files = []
     for a in train_actors:
@@ -161,43 +192,116 @@ class SimplePyTorchCNN(nn.Module):
         return x
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="Train CNN on ThaiSER dataset")
+    parser.add_argument(
+        "--subset",
+        choices=["sentence", "improvisation", "both", "script", "imp"],
+        default="both",
+        help="Dataset subset to train on (default: both)"
+    )
+    parser.add_argument(
+        "--data_dir",
+        default=DEFAULT_DATA_DIR,
+        help=f"Dataset directory path (default: {DEFAULT_DATA_DIR})"
+    )
+    parser.add_argument(
+        "--epochs",
+        type=int,
+        default=10,
+        help="Number of training epochs (default: 10)"
+    )
+    parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=64,
+        help="Batch size (default: 64)"
+    )
+    parser.add_argument(
+        "--learning_rate",
+        type=float,
+        default=0.001,
+        help="Learning rate (default: 0.001)"
+    )
+    parser.add_argument(
+        "--output_dir",
+        default=DEFAULT_OUTPUT_DIR,
+        help=f"Directory to save experiment results (default: {DEFAULT_OUTPUT_DIR})"
+    )
+    parser.add_argument(
+        "--save_model",
+        action="store_true",
+        default=True,
+        help="Save best model weights (default: True)"
+    )
+    parser.add_argument(
+        "--no_save_model",
+        dest="save_model",
+        action="store_false",
+        help="Do not save model weights"
+    )
+    parser.add_argument(
+        "--dry_run",
+        action="store_true",
+        help="Run only 1 train batch and 1 val batch to verify pipeline"
+    )
+    return parser.parse_args()
+
+
 def main():
+    args = parse_args()
+    norm_subset = normalize_subset(args.subset)
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print("PyTorch version:", torch.__version__)
-    print("Using device:", device)
+    print("=" * 65)
+    print("PyTorch CNN Speech Emotion Recognition")
+    print(f"Subset       : {norm_subset} (raw: {args.subset})")
+    print(f"Data Dir     : {args.data_dir}")
+    print(f"Output Dir   : {args.output_dir}")
+    print(f"Device       : {device} (PyTorch {torch.__version__})")
+    print(f"Epochs       : {args.epochs} | Batch Size: {args.batch_size} | LR: {args.learning_rate}")
+    print(f"Save Model   : {args.save_model} | Dry Run: {args.dry_run}")
+    print("=" * 65)
 
     # 1. เตรียมข้อมูล
-    train_files, val_files = prepare_dataset()
-    print("Train samples:", len(train_files))
-    print("Val samples  :", len(val_files))
+    train_files, val_files = prepare_dataset(subset=args.subset, data_dir=args.data_dir)
+    print(f"Train samples: {len(train_files)}")
+    print(f"Val samples  : {len(val_files)}")
 
     train_dataset = ThaiSERDataset(train_files, augment=True)
     val_dataset = ThaiSERDataset(val_files, augment=False)
 
-    train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=args.batch_size,
+        shuffle=True,
+        drop_last=(len(train_dataset) > args.batch_size)
+    )
+    val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False)
 
     # 2. สร้างโมเดล
     model = SimplePyTorchCNN(num_classes=len(CLASSES)).to(device)
     criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=L2_REG)
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=L2_REG)
 
-    # สร้างโฟลเดอร์สำหรับเซฟโมเดล
     os.makedirs(MODELS_PATH, exist_ok=True)
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    best_model_path = os.path.join(MODELS_PATH, f"best_cnn_model_{timestamp}.pt")
+    best_model_path = os.path.join(MODELS_PATH, f"best_cnn_{norm_subset}_{timestamp}.pt")
 
     best_val_loss = float("inf")
+    best_metrics = None
+
+    num_epochs = 1 if args.dry_run else args.epochs
 
     # 3. เทรนโมเดล
     print("\nStarting CNN training...")
-    for epoch in range(1, EPOCHS + 1):
+    for epoch in range(1, num_epochs + 1):
         model.train()
         train_loss = 0.0
         correct = 0
         total = 0
 
-        pbar = tqdm(train_loader, desc=f"Epoch {epoch}/{EPOCHS} [Train]")
+        pbar = tqdm(train_loader, desc=f"Epoch {epoch}/{num_epochs} [Train]")
         for inputs, labels in pbar:
             inputs = inputs.to(device)
             labels = labels.to(device)
@@ -215,16 +319,23 @@ def main():
 
             pbar.set_postfix({"loss": f"{loss.item():.4f}"})
 
-        train_loss = train_loss / total
-        train_acc = (correct / total) * 100.0
+            if args.dry_run:
+                print("  [Dry Run] Finished 1 train batch.")
+                break
+
+        train_loss = train_loss / max(1, total)
+        train_acc = (correct / max(1, total)) * 100.0
 
         model.eval()
         val_loss = 0.0
         val_correct = 0
         val_total = 0
+        val_preds = []
+        val_labels = []
 
         with torch.no_grad():
-            for inputs, labels in tqdm(val_loader, desc=f"Epoch {epoch}/{EPOCHS} [Val]  "):
+            val_pbar = tqdm(val_loader, desc=f"Epoch {epoch}/{num_epochs} [Val]  ")
+            for inputs, labels in val_pbar:
                 inputs = inputs.to(device)
                 labels = labels.to(device)
 
@@ -236,18 +347,75 @@ def main():
                 val_correct += (preds == labels).sum().item()
                 val_total += labels.size(0)
 
-        val_loss = val_loss / val_total
-        val_acc = (val_correct / val_total) * 100.0
+                val_preds.extend(preds.cpu().numpy().tolist())
+                val_labels.extend(labels.cpu().numpy().tolist())
 
-        print(f"Epoch {epoch}/{EPOCHS} Summary:")
-        print(f"  Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.2f}%")
-        print(f"  Val Loss  : {val_loss:.4f} | Val Acc  : {val_acc:.2f}%")
+                if args.dry_run:
+                    print("  [Dry Run] Finished 1 val batch.")
+                    break
 
-        if val_loss < best_val_loss:
-            print(f"  Val loss improved from {best_val_loss:.4f} to {val_loss:.4f}, saving model to {best_model_path}")
+        val_loss = val_loss / max(1, val_total)
+        val_acc = (val_correct / max(1, val_total)) * 100.0
+
+        # Calculate metrics using sklearn
+        acc = float(accuracy_score(val_labels, val_preds)) if val_labels else 0.0
+        macro_prec = float(precision_score(val_labels, val_preds, average="macro", zero_division=0)) if val_labels else 0.0
+        macro_rec = float(recall_score(val_labels, val_preds, average="macro", zero_division=0)) if val_labels else 0.0
+        macro_f1 = float(f1_score(val_labels, val_preds, average="macro", zero_division=0)) if val_labels else 0.0
+
+        prec_per_class = precision_score(val_labels, val_preds, average=None, labels=list(range(len(CLASSES))), zero_division=0) if val_labels else [0.0]*len(CLASSES)
+        rec_per_class = recall_score(val_labels, val_preds, average=None, labels=list(range(len(CLASSES))), zero_division=0) if val_labels else [0.0]*len(CLASSES)
+        f1_per_class = f1_score(val_labels, val_preds, average=None, labels=list(range(len(CLASSES))), zero_division=0) if val_labels else [0.0]*len(CLASSES)
+
+        per_class_metrics = {}
+        for idx, cname in enumerate(CLASSES):
+            per_class_metrics[cname] = {
+                "precision": round(float(prec_per_class[idx]), 4),
+                "recall": round(float(rec_per_class[idx]), 4),
+                "f1_score": round(float(f1_per_class[idx]), 4)
+            }
+
+        print(f"\nEpoch {epoch}/{num_epochs} Summary:")
+        print(f"  Train Loss : {train_loss:.4f} | Train Acc: {train_acc:.2f}%")
+        print(f"  Val Loss   : {val_loss:.4f} | Val Acc  : {val_acc:.2f}%")
+        print(f"  Accuracy   : {acc:.4f} ({acc * 100:.2f}%)")
+        print(f"  Macro Avg  : Precision={macro_prec:.4f}, Recall={macro_rec:.4f}, F1-Score={macro_f1:.4f}")
+        print("  Per-Class Metrics:")
+        for cname, m in per_class_metrics.items():
+            print(f"    {cname:12s}: Precision={m['precision']:.4f}, Recall={m['recall']:.4f}, F1={m['f1_score']:.4f}")
+
+        # Update best metrics
+        if val_loss < best_val_loss or best_metrics is None:
+            if val_loss < best_val_loss:
+                print(f"  Val loss improved from {best_val_loss:.4f} to {val_loss:.4f}")
             best_val_loss = val_loss
-            torch.save(model.state_dict(), best_model_path)
+            best_metrics = {
+                "model": "cnn",
+                "subset": norm_subset,
+                "best_epoch": epoch,
+                "train_loss": round(train_loss, 4),
+                "train_acc": round(train_acc / 100.0, 4),
+                "val_loss": round(val_loss, 4),
+                "accuracy": round(acc, 4),
+                "precision": round(macro_prec, 4),
+                "recall": round(macro_rec, 4),
+                "f1_score": round(macro_f1, 4),
+                "per_class": per_class_metrics
+            }
+            if args.save_model and not args.dry_run:
+                print(f"  Saving model to {best_model_path}")
+                torch.save(model.state_dict(), best_model_path)
+                best_metrics["model_path"] = best_model_path
+
         print()
+
+    # Save summary JSON
+    os.makedirs(args.output_dir, exist_ok=True)
+    json_path = os.path.join(args.output_dir, f"cnn_{norm_subset}_results.json")
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(best_metrics, f, indent=2, ensure_ascii=False)
+    print(f"Results successfully saved to {json_path}")
+    return best_metrics
 
 
 if __name__ == "__main__":
