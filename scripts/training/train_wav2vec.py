@@ -197,6 +197,18 @@ def parse_args():
         action="store_true",
         help="Run only 1 train batch and 1 val batch to verify pipeline"
     )
+    parser.add_argument(
+        "--resume",
+        type=str,
+        default=None,
+        help="Path to checkpoint (.pt) to resume training from"
+    )
+    parser.add_argument(
+        "--start_epoch",
+        type=int,
+        default=None,
+        help="Override starting epoch number (default: auto-detected from checkpoint or 1)"
+    )
     return parser.parse_args()
 
 
@@ -214,6 +226,8 @@ def main():
     print(f"Device       : {device} (PyTorch {torch.__version__})")
     print(f"Epochs       : {args.epochs} | Batch Size: {args.batch_size} | LR: {args.learning_rate}")
     print(f"Save Model   : {args.save_model} | Dry Run: {args.dry_run}")
+    if args.resume:
+        print(f"Resume Ckpt  : {args.resume}")
     print("=" * 65)
 
     # 1. เตรียมข้อมูล
@@ -248,142 +262,190 @@ def main():
     os.makedirs(MODELS_PATH, exist_ok=True)
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     best_model_path = os.path.join(MODELS_PATH, f"best_wav2vec_{norm_subset}_{timestamp}.pt")
+    last_ckpt_path = os.path.join(MODELS_PATH, f"last_wav2vec_{norm_subset}.pt")
 
+    start_epoch = 1
     best_val_loss = float("inf")
     best_metrics = None
 
-    num_epochs = 1 if args.dry_run else args.epochs
+    if args.resume:
+        if not os.path.isfile(args.resume):
+            raise FileNotFoundError(f"Checkpoint not found: {args.resume}")
+        ckpt = torch.load(args.resume, map_location=device)
+        if isinstance(ckpt, dict) and "model_state_dict" in ckpt:
+            model.load_state_dict(ckpt["model_state_dict"])
+            if "optimizer_state_dict" in ckpt:
+                try:
+                    optimizer.load_state_dict(ckpt["optimizer_state_dict"])
+                except Exception as e:
+                    print(f"Warning: Could not load optimizer state: {e}")
+            val_loss_val = ckpt.get("best_val_loss")
+            best_val_loss = val_loss_val if val_loss_val is not None else float("inf")
+            best_metrics = ckpt.get("best_metrics", None)
+            start_epoch = ckpt.get("epoch", 0) + 1
+            print(f"Resumed full checkpoint from {args.resume} at epoch {start_epoch} (best val loss: {best_val_loss:.4f})")
+        else:
+            # Raw state_dict
+            model.load_state_dict(ckpt)
+            start_epoch = 1
+            print(f"Loaded model weights from {args.resume}. Resuming from epoch {start_epoch}.")
 
-    # 3. เทรนโมเดล
-    print("\nStarting Wav2Vec2 training...")
-    for epoch in range(1, num_epochs + 1):
-        model.train()
-        train_loss = 0.0
-        correct = 0
-        total = 0
+    if args.start_epoch is not None:
+        start_epoch = args.start_epoch
+        print(f"Overridden start epoch to: {start_epoch}")
 
-        pbar = tqdm(train_loader, desc=f"Epoch {epoch}/{num_epochs} [Train]")
-        for input_values, attention_mask, labels in pbar:
-            input_values = input_values.to(device)
-            attention_mask = attention_mask.to(device)
-            labels = labels.to(device)
+    total_epochs = args.epochs
+    if args.dry_run:
+        num_epochs = start_epoch
+    else:
+        num_epochs = args.epochs
 
-            optimizer.zero_grad()
-            outputs = model(input_values=input_values, attention_mask=attention_mask, labels=labels)
-            loss = outputs.loss
-            logits = outputs.logits
+    if start_epoch > num_epochs:
+        print(f"Model has already trained for {start_epoch - 1} epochs (requested: {num_epochs}). Skipping training.")
+    else:
+        # 3. เทรนโมเดล
+        print("\nStarting Wav2Vec2 training...")
+        for epoch in range(start_epoch, num_epochs + 1):
+            model.train()
+            train_loss = 0.0
+            correct = 0
+            total = 0
 
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-            optimizer.step()
-
-            train_loss += loss.item() * input_values.size(0)
-            preds = torch.argmax(logits, dim=-1)
-            correct += (preds == labels).sum().item()
-            total += labels.size(0)
-
-            pbar.set_postfix({"loss": f"{loss.item():.4f}"})
-
-            if args.dry_run:
-                print("  [Dry Run] Finished 1 train batch.")
-                break
-
-        train_loss = train_loss / max(1, total)
-        train_acc = (correct / max(1, total)) * 100.0
-
-        # Evaluation
-        model.eval()
-        val_loss = 0.0
-        val_correct = 0
-        val_total = 0
-        val_preds = []
-        val_labels = []
-
-        with torch.no_grad():
-            val_pbar = tqdm(val_loader, desc=f"Epoch {epoch}/{num_epochs} [Val]  ")
-            for input_values, attention_mask, labels in val_pbar:
+            pbar = tqdm(train_loader, desc=f"Epoch {epoch}/{num_epochs} [Train]")
+            for input_values, attention_mask, labels in pbar:
                 input_values = input_values.to(device)
                 attention_mask = attention_mask.to(device)
                 labels = labels.to(device)
 
+                optimizer.zero_grad()
                 outputs = model(input_values=input_values, attention_mask=attention_mask, labels=labels)
                 loss = outputs.loss
                 logits = outputs.logits
 
-                val_loss += loss.item() * input_values.size(0)
-                preds = torch.argmax(logits, dim=-1)
-                val_correct += (preds == labels).sum().item()
-                val_total += labels.size(0)
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                optimizer.step()
 
-                val_preds.extend(preds.cpu().numpy().tolist())
-                val_labels.extend(labels.cpu().numpy().tolist())
+                train_loss += loss.item() * input_values.size(0)
+                preds = torch.argmax(logits, dim=-1)
+                correct += (preds == labels).sum().item()
+                total += labels.size(0)
+
+                pbar.set_postfix({"loss": f"{loss.item():.4f}"})
 
                 if args.dry_run:
-                    print("  [Dry Run] Finished 1 val batch.")
+                    print("  [Dry Run] Finished 1 train batch.")
                     break
 
-        val_loss = val_loss / max(1, val_total)
-        val_acc = (val_correct / max(1, val_total)) * 100.0
+            train_loss = train_loss / max(1, total)
+            train_acc = (correct / max(1, total)) * 100.0
 
-        # Calculate metrics using sklearn
-        acc = float(accuracy_score(val_labels, val_preds)) if val_labels else 0.0
-        macro_prec = float(precision_score(val_labels, val_preds, average="macro", zero_division=0)) if val_labels else 0.0
-        macro_rec = float(recall_score(val_labels, val_preds, average="macro", zero_division=0)) if val_labels else 0.0
-        macro_f1 = float(f1_score(val_labels, val_preds, average="macro", zero_division=0)) if val_labels else 0.0
+            # Evaluation
+            model.eval()
+            val_loss = 0.0
+            val_correct = 0
+            val_total = 0
+            val_preds = []
+            val_labels = []
 
-        prec_per_class = precision_score(val_labels, val_preds, average=None, labels=list(range(len(CLASSES))), zero_division=0) if val_labels else [0.0]*len(CLASSES)
-        rec_per_class = recall_score(val_labels, val_preds, average=None, labels=list(range(len(CLASSES))), zero_division=0) if val_labels else [0.0]*len(CLASSES)
-        f1_per_class = f1_score(val_labels, val_preds, average=None, labels=list(range(len(CLASSES))), zero_division=0) if val_labels else [0.0]*len(CLASSES)
+            with torch.no_grad():
+                val_pbar = tqdm(val_loader, desc=f"Epoch {epoch}/{num_epochs} [Val]  ")
+                for input_values, attention_mask, labels in val_pbar:
+                    input_values = input_values.to(device)
+                    attention_mask = attention_mask.to(device)
+                    labels = labels.to(device)
 
-        per_class_metrics = {}
-        for idx, cname in enumerate(CLASSES):
-            per_class_metrics[cname] = {
-                "precision": round(float(prec_per_class[idx]), 4),
-                "recall": round(float(rec_per_class[idx]), 4),
-                "f1_score": round(float(f1_per_class[idx]), 4)
-            }
+                    outputs = model(input_values=input_values, attention_mask=attention_mask, labels=labels)
+                    loss = outputs.loss
+                    logits = outputs.logits
 
-        print(f"\nEpoch {epoch}/{num_epochs} Summary:")
-        print(f"  Train Loss : {train_loss:.4f} | Train Acc: {train_acc:.2f}%")
-        print(f"  Val Loss   : {val_loss:.4f} | Val Acc  : {val_acc:.2f}%")
-        print(f"  Accuracy   : {acc:.4f} ({acc * 100:.2f}%)")
-        print(f"  Macro Avg  : Precision={macro_prec:.4f}, Recall={macro_rec:.4f}, F1-Score={macro_f1:.4f}")
-        print("  Per-Class Metrics:")
-        for cname, m in per_class_metrics.items():
-            print(f"    {cname:12s}: Precision={m['precision']:.4f}, Recall={m['recall']:.4f}, F1={m['f1_score']:.4f}")
+                    val_loss += loss.item() * input_values.size(0)
+                    preds = torch.argmax(logits, dim=-1)
+                    val_correct += (preds == labels).sum().item()
+                    val_total += labels.size(0)
 
-        # Update best metrics
-        if val_loss < best_val_loss or best_metrics is None:
-            if val_loss < best_val_loss:
-                print(f"  Val loss improved from {best_val_loss:.4f} to {val_loss:.4f}")
-            best_val_loss = val_loss
-            best_metrics = {
-                "model": "wav2vec2",
-                "subset": norm_subset,
-                "model_name": args.model_name,
-                "best_epoch": epoch,
-                "train_loss": round(train_loss, 4),
-                "train_acc": round(train_acc / 100.0, 4),
-                "val_loss": round(val_loss, 4),
-                "accuracy": round(acc, 4),
-                "precision": round(macro_prec, 4),
-                "recall": round(macro_rec, 4),
-                "f1_score": round(macro_f1, 4),
-                "per_class": per_class_metrics
-            }
-            if args.save_model and not args.dry_run:
-                print(f"  Saving model to {best_model_path}")
-                torch.save(model.state_dict(), best_model_path)
-                best_metrics["model_path"] = best_model_path
+                    val_preds.extend(preds.cpu().numpy().tolist())
+                    val_labels.extend(labels.cpu().numpy().tolist())
 
-        print()
+                    if args.dry_run:
+                        print("  [Dry Run] Finished 1 val batch.")
+                        break
+
+            val_loss = val_loss / max(1, val_total)
+            val_acc = (val_correct / max(1, val_total)) * 100.0
+
+            # Calculate metrics using sklearn
+            acc = float(accuracy_score(val_labels, val_preds)) if val_labels else 0.0
+            macro_prec = float(precision_score(val_labels, val_preds, average="macro", zero_division=0)) if val_labels else 0.0
+            macro_rec = float(recall_score(val_labels, val_preds, average="macro", zero_division=0)) if val_labels else 0.0
+            macro_f1 = float(f1_score(val_labels, val_preds, average="macro", zero_division=0)) if val_labels else 0.0
+
+            prec_per_class = precision_score(val_labels, val_preds, average=None, labels=list(range(len(CLASSES))), zero_division=0) if val_labels else [0.0]*len(CLASSES)
+            rec_per_class = recall_score(val_labels, val_preds, average=None, labels=list(range(len(CLASSES))), zero_division=0) if val_labels else [0.0]*len(CLASSES)
+            f1_per_class = f1_score(val_labels, val_preds, average=None, labels=list(range(len(CLASSES))), zero_division=0) if val_labels else [0.0]*len(CLASSES)
+
+            per_class_metrics = {}
+            for idx, cname in enumerate(CLASSES):
+                per_class_metrics[cname] = {
+                    "precision": round(float(prec_per_class[idx]), 4),
+                    "recall": round(float(rec_per_class[idx]), 4),
+                    "f1_score": round(float(f1_per_class[idx]), 4)
+                }
+
+            print(f"\nEpoch {epoch}/{num_epochs} Summary:")
+            print(f"  Train Loss : {train_loss:.4f} | Train Acc: {train_acc:.2f}%")
+            print(f"  Val Loss   : {val_loss:.4f} | Val Acc  : {val_acc:.2f}%")
+            print(f"  Accuracy   : {acc:.4f} ({acc * 100:.2f}%)")
+            print(f"  Macro Avg  : Precision={macro_prec:.4f}, Recall={macro_rec:.4f}, F1-Score={macro_f1:.4f}")
+            print("  Per-Class Metrics:")
+            for cname, m in per_class_metrics.items():
+                print(f"    {cname:12s}: Precision={m['precision']:.4f}, Recall={m['recall']:.4f}, F1={m['f1_score']:.4f}")
+
+            # Update best metrics
+            if val_loss < best_val_loss or best_metrics is None:
+                if val_loss < best_val_loss:
+                    print(f"  Val loss improved from {best_val_loss:.4f} to {val_loss:.4f}")
+                best_val_loss = val_loss
+                best_metrics = {
+                    "model": "wav2vec2",
+                    "subset": norm_subset,
+                    "model_name": args.model_name,
+                    "best_epoch": epoch,
+                    "train_loss": round(train_loss, 4),
+                    "train_acc": round(train_acc / 100.0, 4),
+                    "val_loss": round(val_loss, 4),
+                    "accuracy": round(acc, 4),
+                    "precision": round(macro_prec, 4),
+                    "recall": round(macro_rec, 4),
+                    "f1_score": round(macro_f1, 4),
+                    "per_class": per_class_metrics
+                }
+                if args.save_model and not args.dry_run:
+                    print(f"  Saving model to {best_model_path}")
+                    torch.save(model.state_dict(), best_model_path)
+                    best_metrics["model_path"] = best_model_path
+
+            # Save persistent last checkpoint
+            if args.save_model:
+                last_ckpt = {
+                    "epoch": epoch,
+                    "model_state_dict": model.state_dict(),
+                    "optimizer_state_dict": optimizer.state_dict(),
+                    "best_val_loss": best_val_loss,
+                    "best_metrics": best_metrics
+                }
+                torch.save(last_ckpt, last_ckpt_path)
+                print(f"  Saved last checkpoint to {last_ckpt_path}")
+
+            print()
 
     # Save summary JSON
-    os.makedirs(args.output_dir, exist_ok=True)
-    json_path = os.path.join(args.output_dir, f"wav2vec_{norm_subset}_results.json")
-    with open(json_path, "w", encoding="utf-8") as f:
-        json.dump(best_metrics, f, indent=2, ensure_ascii=False)
-    print(f"Results successfully saved to {json_path}")
+    if best_metrics is not None:
+        os.makedirs(args.output_dir, exist_ok=True)
+        json_path = os.path.join(args.output_dir, f"wav2vec_{norm_subset}_results.json")
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump(best_metrics, f, indent=2, ensure_ascii=False)
+        print(f"Results successfully saved to {json_path}")
     return best_metrics
 
 
