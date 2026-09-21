@@ -9,3 +9,4 @@ tqdm
 matplotlib
 pyannote.audio
 python-dotenv
+scikit-learn

@@ -16,7 +16,8 @@ Code/
 │   │   └── test_match.py       # ทดสอบจับคู่ไฟล์เสียง
 │   ├── training/               # สคริปต์เทรนโมเดล
 │   │   ├── train_cnn.py        # Baseline CNN + Mel-Spectrogram
-│   │   └── train_wav2vec.py    # Fine-tune Wav2Vec 2.0 (XLSR-53-TH)
+│   │   ├── train_wav2vec.py    # Fine-tune Wav2Vec 2.0 (XLSR-53-TH)
+│   │   └── run_experiments.py  # รัน 6 configs (2 models × 3 subsets) + สรุปผล
 │   └── evaluation/             # สคริปต์ทดสอบและวาดกราฟ
 │       └── use_graph.py        # Sliding window + กราฟอารมณ์ตามเวลา
 ├── Dataset/                    # ชุดข้อมูลเสียง (ไม่เข้า git)
@@ -63,12 +64,34 @@ python scripts/data_prep/organize_thaiser.py
 ### 3. เทรนโมเดลจับอารมณ์
 
 ```bash
-# Baseline CNN
+# Baseline CNN (default: both subsets, 50 epochs)
 python scripts/training/train_cnn.py
+
+# CNN เฉพาะ subset + กำหนด epochs
+python scripts/training/train_cnn.py --subset sentence --epochs 30 --save_model
 
 # Wav2Vec 2.0 (ต้องมี GPU)
 python scripts/training/train_wav2vec.py
+
+# Wav2Vec 2.0 เฉพาะ subset
+python scripts/training/train_wav2vec.py --subset improvisation --epochs 10 --save_model
 ```
+
+### 3.1 รัน Experiment Matrix (6 configs)
+
+```bash
+# รันทั้ง 6 configurations (CNN/Wav2Vec × sentence/improvisation/both)
+python scripts/training/run_experiments.py
+
+# Dry run (ทดสอบ pipeline โดยไม่เทรนจริง)
+python scripts/training/run_experiments.py --dry_run
+
+# สร้างตารางสรุปจาก JSON ที่มีอยู่แล้ว
+python scripts/training/run_experiments.py --report
+```
+
+ผลลัพธ์จะอยู่ใน `outputs/experiments/` เป็น JSON + Markdown summary table
+วัดผล 4 metrics: **Accuracy, Precision, Recall, F1-Score** (macro + per-class)
 
 ### 4. เตรียมข้อมูล Thai H2H (Phase 2)
 
@@ -107,3 +130,4 @@ python scripts/evaluation/use_graph.py
 - **Wav2Vec 2.0 (XLSR-53-TH)** — Pre-trained speech model สำหรับภาษาไทย
 - **pyannote.audio** — Speaker Diarization (แยกเสียงคนพูด)
 - **librosa** — Audio feature extraction
+- **scikit-learn** — Evaluation metrics (Accuracy, Precision, Recall, F1)
