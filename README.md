@@ -13,16 +13,21 @@ Code/
 │   │   ├── rename_h2h_final.py # เปลี่ยนชื่อไฟล์ Thai H2H ให้อ่านง่าย
 │   │   ├── mix_audio.py        # ผสมเสียง left/right เป็น mono
 │   │   ├── diarize_audio.py    # แยกเสียงคนพูด (Speaker Diarization)
+│   │   ├── cluster_speakers.py # สกัด Speaker Embedding & Clustering
 │   │   └── test_match.py       # ทดสอบจับคู่ไฟล์เสียง
 │   ├── training/               # สคริปต์เทรนโมเดล
 │   │   ├── train_cnn.py        # Baseline CNN + Mel-Spectrogram
 │   │   ├── train_wav2vec.py    # Fine-tune Wav2Vec 2.0 (XLSR-53-TH)
 │   │   └── run_experiments.py  # รัน 6 configs (2 models × 3 subsets) + สรุปผล
-│   └── evaluation/             # สคริปต์ทดสอบและวาดกราฟ
-│       └── use_graph.py        # Sliding window + กราฟอารมณ์ตามเวลา
+│   └── evaluation/             # สคริปต์ทดสอบและประเมินผล
+│       ├── pipeline_test.py    # ทดสอบ Pipeline (Diarization + SER + Timeline)
+│       ├── use_graph.py        # Sliding window + กราฟอารมณ์ตามเวลา
+│       ├── extract_emotion_samples.py      # สกัดตัวอย่างเสียงตามอารมณ์
+│       ├── evaluate_call_center_real.py    # วิเคราะห์สายจริง + คำนวณ Service Score
+│       └── generate_call_center_graphs.py  # สร้างกราฟวิเคราะห์ QA 3 รูปแบบ
 ├── Dataset/                    # ชุดข้อมูลเสียง (ไม่เข้า git)
 ├── Models/                     # โมเดลที่เทรนแล้ว (ไม่เข้า git)
-├── outputs/                    # รูปกราฟผลลัพธ์ (ไม่เข้า git)
+├── outputs/                    # รูปกราฟและผลการทดลอง (ไม่เข้า git)
 └── Project_1_Obsidian/         # เอกสารแผนงาน
     ├── plan.md
     └── Todo.md
@@ -32,10 +37,10 @@ Code/
 
 | Phase | รายละเอียด | สถานะ |
 |-------|-----------|-------|
-| 1. Emotion Model | เทรนโมเดลจับอารมณ์จากเสียงภาษาไทย (ThaiSER) | ✅ ทำงานได้ |
-| 2. Call Analysis Pipeline | แยกเสียงคนพูด (Diarization) → วิเคราะห์อารมณ์ตามไทม์ไลน์ | 🔄 กำลังทำ |
-| 3. Agent Performance | สรุปคะแนนประเมินพนักงานจากอารมณ์ลูกค้า | ⬜ ยังไม่เริ่ม |
-| 4. Web Dashboard | แดชบอร์ดแสดงผลวิเคราะห์ | ⬜ ยังไม่เริ่ม |
+| 1. Emotion Model | เทรนโมเดลจับอารมณ์จากเสียงภาษาไทย (ThaiSER 6-Matrix Experiments) | ✅ เสร็จสมบูรณ์ |
+| 2. Call Analysis Pipeline | แยกเสียงคนพูด (Diarization) → Sliding Window 4s/1s → Emotion Timeline | ✅ เสร็จสมบูรณ์ |
+| 3. Agent Performance | คำนวณคะแนนบริการ (Agent Baseline + De-escalation Bonus, 0–5 ดาว) | ✅ เสร็จสมบูรณ์ |
+| 4. Web Dashboard | แดชบอร์ดแสดงผลวิเคราะห์และเครื่องเล่นเสียงไฮไลต์จุดวิกฤต (FastAPI + React) | 🔄 แผนถัดไป |
 
 ## Datasets
 
@@ -123,6 +128,20 @@ python scripts/data_prep/diarize_audio.py
 ```bash
 python scripts/evaluation/use_graph.py
 ```
+
+### 7. วิเคราะห์สายสนทนาจริงและประเมินคุณภาพการบริการ (Phase 2 & 3)
+
+วิเคราะห์เสียงสนทนาจริงจากชุดข้อมูล Thai H2H ตัดแบ่งคำพูดด้วย Speaker Diarization คำนวณ Continuous Valence ด้วยเทคนิค Sliding Window (Window 4.0s, Hop 1.0s) และประเมินคะแนนการบริการ (Service Score 0–5 ดาว):
+
+```bash
+# วิเคราะห์สายจริงและคำนวณคะแนน Service Rating
+python scripts/evaluation/evaluate_call_center_real.py
+
+# สร้างชุดกราฟวิเคราะห์ QA 3 รูปแบบ (Dual-Track Timeline, Phase Shift, Service Score Card)
+python scripts/evaluation/generate_call_center_graphs.py
+```
+
+ผลลัพธ์กราฟและสรุปจะถูกบันทึกใน `outputs/call_center_graphs/`
 
 ## Tech Stack
 
